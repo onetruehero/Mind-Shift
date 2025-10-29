@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>SHIFT · Breathing Tools</title>
+  <meta name="theme-color" content="#000000" />
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="48x48" href="favicon-48x48.png">
+  <link rel="icon" type="image/png" sizes="64x64" href="favicon-64x64.png">
+  <link rel="icon" href="favicon.ico" type="image/x-icon">
+  <link rel="apple-touch-startup-image" href="splash-512x1024.png" media="(orientation: portrait)">
+  <link rel="apple-touch-startup-image" href="splash-1024x512.png" media="(orientation: landscape)">
+  <link rel="apple-touch-startup-image" href="splash-1024x1024.png" media="(device-width: 1024px)">
+  <style>
+    html, body { height: 100%; margin: 0; background: #000; color: #fff; overflow: hidden; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; touch-action: none; }
+    canvas { position: fixed; inset: 0; }
+    .arrow { position: fixed; top: 50%; transform: translateY(-50%); width: 40px; height: 40px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.45); display: grid; place-items: center; opacity: 0.55; cursor: pointer; transition: opacity 0.2s; background: rgba(255,255,255,0.06); user-select: none; }
+    .arrow:hover { opacity: 1; }
+    #leftArrow { left: 1.5vw; }
+    #rightArrow { right: 1.5vw; }
+    .caption { position: fixed; bottom: 8vh; width: 100%; text-align: center; font-size: 18px; opacity: 0.95; letter-spacing: 0.2px; }
+    .voice { position: fixed; top: 1.5vh; right: 1.6vw; width: 44px; height: 44px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.35); display: grid; place-items: center; background: rgba(255,255,255,0.06); cursor: pointer; opacity: 0.7; user-select: none; }
+    .voice:hover { opacity: 1; }
+    .voice::after { content: attr(data-state); font-size: 12px; opacity: 0.9; }
+
+    /* Spotify UI */
+    .music{position:fixed;left:1.6vw;top:1.5vh;width:44px;height:44px;border-radius:999px;border:1px solid rgba(255,255,255,0.35);display:grid;place-items:center;background:rgba(255,255,255,0.06);cursor:pointer;opacity:.75;user-select:none}
+    .music:hover{opacity:1}
+    .music-panel{position:fixed;left:1.6vw;top:7.5vh;background:rgba(20,20,20,0.9);border:1px solid rgba(255,255,255,0.15);border-radius:12px;padding:10px;min-width:260px}
+    .music-panel .row{display:flex;gap:8px;margin:6px 0}
+    .music-panel input{flex:1;min-width:0;background:#111;border:1px solid #333;color:#fff;border-radius:8px;padding:8px}
+    .music-panel button{background:#1db954;border:none;color:#000;font-weight:600;border-radius:8px;padding:8px 10px;cursor:pointer}
+    .music-panel .small{font-size:12px;opacity:.85;align-items:center;justify-content:space-between}
+    .spotify-embed{position:fixed;left:50%;transform:translateX(-50%);bottom:1.5vh;width:min(420px,92vw);height:152px;border:0;}
+    .spotify-mini{width:1px;height:1px;opacity:0;clip:rect(0 0 0 0);position:absolute}
+  </style>
+</head>
+<body>
+  <canvas id="scene"></canvas>
+
+  <!-- Music (Spotify) UI -->
+  <div class="music" id="musicBtn" title="Music (Spotify)">♫</div>
+  <div class="music-panel" id="musicPanel" hidden>
+    <div class="row">
+      <input id="spotifyInput" placeholder="Paste Spotify link or URI" />
+      <button id="spotifyLoad">Load</button>
+    </div>
+    <div class="row small">
+      <label><input type="checkbox" id="spotifyMini"> audio only</label>
+      <button id="spotifyClose">Close</button>
+    </div>
+  </div>
+  <div class="spotify-embed" id="spotifyEmbed" hidden></div>
+
+  <div class="arrow" id="leftArrow" aria-label="Previous mode">⟨</div>
+  <div class="arrow" id="rightArrow" aria-label="Next mode">⟩</div>
+  <div class="voice" id="voiceBtn" role="button" aria-label="Toggle voice" data-state="voice off"></div>
+  <div class="caption" id="caption"></div>
+
+<script>
+(function(){
+  // ES5 compatibility: no arrow functions, let/const, template literals, or addEventListener options objects.
+  var cv = document.getElementById('scene');
+  var ctx = cv.getContext('2d');
+  var caption = document.getElementById('caption');
+  var voiceBtn = document.getElementById('voiceBtn');
+
+  // Spotify UI refs
+  var musicBtn = document.getElementById('musicBtn');
+  var musicPanel = document.getElementById('musicPanel');
+  var spotifyInput = document.getElementById('spotifyInput');
+  var spotifyLoad = document.getElementById('spotifyLoad');
+  var spotifyClose = document.getElementById('spotifyClose');
+  var spotifyMini = document.getElementById('spotifyMini');
+  var spotifyEmbed = document.getElementById('spotifyEmbed');
+
+  function fit(){
+    var dpr = 1;
+    try { dpr = window.devicePixelRatio || 1; } catch(e) { dpr = 1; }
+    if (dpr < 1) dpr = 1;
+    if (dpr > 3) dpr = 3;
+    var w = Math.floor(window.innerWidth || document.documentElement.clientWidth || 800);
+    var h = Math.floor(window.innerHeight || document.documentElement.clientHeight || 600);
+    cv.width = Math.floor(w * dpr);
+    cv.height = Math.floor(h * dpr);
+    cv.style.width = w + 'px';
+    cv.style.height = h + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  fit();
+  try { window.addEventListener('resize', fit, false); } catch(e) { window.addEventListener('resize', fit); }
+
+  // --- Spotify helpers ---
+  function toEmbedUrl(input){
+    if(!input) return null;
+    input = (input + " ").trim();
+    var uriMatch = input.match(/^spotify:(track|playlist|album|artist):([A-Za-z0-9]+)$/i);
+    if(uriMatch){ return 'https://open.spotify.com/embed/' + uriMatch[1] + '/' + uriMatch[2]; }
+    try{
+      var u = document.createElement('a');
+      u.href = input;
+      if(u.hostname && u.hostname.indexOf('open.spotify.com') !== -1){
+        var partsRaw = u.pathname.split('/');
+        var parts = [];
+        for(var i=0;i<partsRaw.length;i++){ if(partsRaw[i]) parts.push(partsRaw[i]); }
+        if(parts.length>=2){
+          var type = parts[0];
+          var id = parts[1];
+          return 'https://open.spotify.com/embed/' + type + '/' + id;
+        }
+      }
+    }catch(_){}
+    return null;
+  }
+
+  function loadSpotify(input, mini){
+    var url = toEmbedUrl(input);
+    if(!url){ caption.textContent = 'Invalid Spotify link'; return; }
+    try{ localStorage.setItem('shift_spotify', input); }catch(_){}
+    spotifyEmbed.innerHTML = '';
+    var iframe = document.createElement('iframe');
+    iframe.setAttribute('allow', 'autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture');
+    iframe.setAttribute('loading', 'lazy');
+    iframe.src = url;
+    iframe.width = '100%';
+    iframe.height = '152';
+    iframe.style.border = 'none';
+    spotifyEmbed.appendChild(iframe);
+    spotifyEmbed.hidden = false;
+    if(mini){ spotifyEmbed.className = 'spotify-embed spotify-mini'; }
+    else { spotifyEmbed.className = 'spotify-embed'; }
+    caption.textContent = 'Spotify ready — press play';
+  }
+
+  // Modes: 0 = calm breath, 1 = box breath
+  var tool = 0;
+  var start = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+
+  // Voice toggle
+  var voiceOn = false;
+  function say(t){
+    if(!voiceOn) return;
+    try{
+      if (window.speechSynthesis && typeof window.speechSynthesis.getVoices === 'function') {
+        window.speechSynthesis.getVoices();
+      }
+      var u = new SpeechSynthesisUtterance(t);
+      u.rate = 0.95; u.pitch = 1.0; u.volume = 0.95;
+      speechSynthesis.cancel();
+      speechSynthesis.speak(u);
+    }catch(_){}
+  }
+  voiceBtn.onclick = function(){
+    voiceOn = !voiceOn;
+    voiceBtn.setAttribute('data-state', voiceOn ? 'voice on' : 'voice off');
+    if(!voiceOn){ try{ speechSynthesis.cancel(); }catch(_){ } }
+    else { say(tool===1 ? 'Box breathing' : 'Calm breathing'); }
+  };
+
+  // Calm breath helper: 4s in / 6s out
+  function calmStage(time){
+    var cyc = 10;
+    var pos = (time % cyc);
+    if(pos < 4) return {label:'Breathe in', prog: pos/4, stage:'in'};
+    var p = pos-4; return {label:'Breathe out', prog:p/6, stage:'out'};
+  }
+
+  // Box breath staged prompts (4/4/4/4)
+  var BOX_DUR = {in:4, hold1:4, out:4, hold2:4};
+  var BOX_ORDER = ['in','hold1','out','hold2'];
+  var lastBoxStage = '';
+  function boxStage(time){
+    var total = 16;
+    var t = time % total;
+    for(var i=0;i<BOX_ORDER.length;i++){
+      var k = BOX_ORDER[i];
+      var d = BOX_DUR[k];
+      if(t < d){
+        var st = k;
+        var prog = t/d;
+        if(st !== lastBoxStage){
+          lastBoxStage = st;
+          if(st==='in'){ caption.textContent='Breathe in'; say('Breathe in'); }
+          else if(st==='hold1'){ caption.textContent='Hold'; say('Hold'); }
+          else if(st==='out'){ caption.textContent='Breathe out'; say('Breathe out'); }
+          else { caption.textContent='Hold'; say('Hold'); }
+        }
+        return {stage: st, prog: prog};
+      }
+      t -= d;
+    }
+    return {stage:'in', prog:0};
+  }
+
+  var lastCalmStage = '';
+
+  function draw(nowTS){
+    var now = nowTS || ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now());
+    var dpr = (window.devicePixelRatio || 1);
+    if (dpr < 1) dpr = 1;
+    if (dpr > 3) dpr = 3;
+    var w = cv.width / dpr;
+    var h = cv.height / dpr;
+    var cx = w/2, cy = h/2;
+    var t = (now - start)/1000;
+
+    ctx.clearRect(0,0,w,h);
+
+    // background vignette
+    var grd = ctx.createRadialGradient(cx, cy, 10, cx, cy, Math.max(w,h)/1.2);
+    grd.addColorStop(0,'rgba(0,0,0,0.35)');
+    grd.addColorStop(1,'rgba(0,0,0,1)');
+    ctx.fillStyle = grd; ctx.fillRect(0,0,w,h);
+
+    if(tool===0){
+      var ph = calmStage(t);
+      if(ph.stage !== lastCalmStage){
+        lastCalmStage = ph.stage;
+        say(ph.stage==='in' ? 'Breathe in' : 'Breathe out');
+      }
+      if(caption.textContent !== ph.label) caption.textContent = ph.label;
+      var rBase = Math.min(w,h)*0.18;
+      var eased = 0.5 - 0.5*Math.cos(Math.PI*ph.prog);
+      var r = ph.stage==='in' ? rBase*(0.8 + 0.22*eased) : rBase*(1.0 - 0.22*eased);
+      var orb = ctx.createRadialGradient(cx,cy,r*0.2,cx,cy,r);
+      orb.addColorStop(0,'#fff'); orb.addColorStop(0.4,'#bfe9ff'); orb.addColorStop(1,'rgba(13,27,42,0.85)');
+      ctx.fillStyle = orb; ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.fill();
+
+      ctx.lineWidth = Math.max(6, r*0.08);
+      ctx.strokeStyle = 'rgba(200,230,255,0.78)'; ctx.lineCap='round';
+      var ringR = r + ctx.lineWidth*0.45;
+      ctx.beginPath(); ctx.arc(cx, cy, ringR, -Math.PI/2, -Math.PI/2 + Math.PI*2*ph.prog); ctx.stroke();
+    }
+
+    if(tool===1){
+      var size = Math.min(w,h)*0.45; var half = size/2; ctx.save(); ctx.translate(cx,cy);
+      ctx.strokeStyle='rgba(180,220,255,0.9)'; ctx.lineWidth=Math.max(4, size*0.012); ctx.lineJoin='round';
+      ctx.strokeRect(-half,-half,size,size);
+
+      var phb = boxStage(t);
+      var prog = phb.prog < 0 ? 0 : (phb.prog > 1 ? 1 : phb.prog);
+      var x=-half, y=-half;
+      if(phb.stage==='in'){ x=-half+size*prog; y=-half; }
+      else if(phb.stage==='hold1'){ x=half; y=-half+size*prog; }
+      else if(phb.stage==='out'){ x=half-size*prog; y=half; }
+      else { x=-half; y=half-size*prog; }
+
+      ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(x,y,Math.max(6,size*0.022),0,Math.PI*2); ctx.fill();
+
+      var r2 = Math.max(20, size*0.085) * (phb.stage==='in' ? (0.8 + 0.2*prog) : phb.stage==='out' ? (1.0 - 0.2*prog) : 1.0);
+      var orb2 = ctx.createRadialGradient(0, 0, r2*0.2, 0, 0, r2);
+      orb2.addColorStop(0, '#ffffff');
+      orb2.addColorStop(0.4, '#c7ffd6');
+      orb2.addColorStop(1, 'rgba(13,27,42,0.82)');
+      ctx.fillStyle = orb2; ctx.beginPath(); ctx.arc(0, 0, r2, 0, Math.PI*2); ctx.fill();
+      ctx.restore();
+    }
+
+    if (window.requestAnimationFrame) { window.requestAnimationFrame(draw); }
+    else { setTimeout(function(){ draw(Date.now()); }, 16); }
+  }
+  if (window.requestAnimationFrame) { window.requestAnimationFrame(draw); }
+  else { setTimeout(function(){ draw(Date.now()); }, 16); }
+
+  function nextTool(d){
+    tool = (tool + d + 2) % 2;
+    start = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    try{ speechSynthesis.cancel(); }catch(_){}
+    lastBoxStage=''; lastCalmStage='';
+    caption.textContent='Breathe in';
+    say(tool===1 ? 'Box breathing' : 'Calm breathing');
+  }
+  document.getElementById('leftArrow').onclick = function(){ nextTool(-1); };
+  document.getElementById('rightArrow').onclick = function(){ nextTool(1); };
+
+  var touchStartX = null;
+  window.addEventListener('touchstart', function(e){
+    if(e.touches && e.touches[0]) touchStartX = e.touches[0].clientX || 0;
+  }, false);
+  window.addEventListener('touchend', function(e){
+    if(touchStartX===null) return;
+    var dx = 0;
+    if(e.changedTouches && e.changedTouches[0]) dx = (e.changedTouches[0].clientX || 0) - touchStartX;
+    if(Math.abs(dx)>50){ nextTool(dx>0?-1:1); }
+    touchStartX=null;
+  }, false);
+
+  // --- Spotify UI wiring ---
+  try{ var last = localStorage.getItem('shift_spotify'); if(last){ spotifyInput.value = last; } }catch(_){}
+  musicBtn.onclick = function(){ musicPanel.hidden = !musicPanel.hidden; };
+  spotifyClose.onclick = function(){ musicPanel.hidden = true; };
+  spotifyLoad.onclick = function(){ loadSpotify(spotifyInput.value, !!spotifyMini.checked); };
+  spotifyInput.onkeydown = function(e){ e = e || window.event; var key = e.key || e.keyCode; if(key === 'Enter' || key === 13){ loadSpotify(spotifyInput.value, !!spotifyMini.checked); } };
+})();
+</script>
+
+<!-- PWA: service worker registration -->
+<script>
+  (function(){
+    if ('serviceWorker' in navigator) {
+      try { navigator.serviceWorker.register('./sw.js'); } catch(e) {}
+    }
+  })();
+</script>
+</body>
+</html>
